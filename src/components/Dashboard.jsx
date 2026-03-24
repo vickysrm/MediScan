@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Clock, Pill, Bell, Calendar, CheckCircle, XCircle, Trash2, Upload, Home } from "lucide-react";
+import { Clock, Pill, Bell, Calendar, CheckCircle, XCircle, Trash2, Upload, Home, History } from "lucide-react";
+import PrescriptionHistory from "./PrescriptionHistory";
 
 const s = {
   container: { padding: "32px 20px", maxWidth: 800, margin: "0 auto" },
@@ -222,6 +223,8 @@ export default function Dashboard({ onScanClick, onDeletePrescription }) {
               </button>
             </div>
           ))}
+
+          <PrescriptionHistory />
         </>
       )}
     </div>

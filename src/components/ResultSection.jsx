@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CheckCircle, Info } from "lucide-react";
 import ResultCard from "./ResultCard";
 import PharmacyLocator from "./PharmacyLocator";
+import DrugInteractionChecker from "./DrugInteractionChecker";
 
 const s = {
   successRow: { display: "flex", alignItems: "center", gap: 8 },
@@ -50,6 +51,8 @@ export default function ResultSection({ result }) {
       )}
 
       {(medications.length > 0 || result.drugName) && <PharmacyLocator medications={medications.length > 0 ? medications : [result]} />}
+      
+      {medications.length > 1 && <DrugInteractionChecker medications={medications} />}
     </div>
   );
 }
