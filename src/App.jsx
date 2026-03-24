@@ -195,6 +195,10 @@ export default function App() {
         setCountdown(30);
         setError("API rate limit reached. Please wait 30 seconds.");
         setStage("error");
+      } else if (msg.includes("does not support image") || msg.includes("Cannot read")) {
+        setApiKey("");
+        setShowApiKeyInput(true);
+        setError("API key issue. Please enter a fresh Gemini API key from https://aistudio.google.com/apikey");
       } else if (msg.includes("API key") || msg.includes("401") || msg.includes("403")) {
         setApiKey("");
         setShowApiKeyInput(true);
