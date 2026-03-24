@@ -39,6 +39,8 @@ function mapErrorMessage(err) {
   if (msg.includes("timed out")) return "Request timed out. Try again.";
   if (msg.includes("429") || msg.includes("rate")) return "Rate limit reached. Wait 1 minute.";
   if (msg.includes("API key") || msg.includes("401") || msg.includes("403")) return "Invalid API key.";
+  if (msg.includes("Network")) return "Network error while contacting Gemini.";
+  if (msg.includes("model")) return "Gemini request failed. Refresh and try again.";
   return "Could not read prescription.";
 }
 
@@ -110,9 +112,11 @@ export default function App() {
 
   function savePrescription(parsed) {
     const newRx = { id: Date.now(), date: new Date().toISOString(), medications: parsed.medications || [] };
-    const updated = [newRx, ...prescriptions];
-    setPrescriptions(updated);
-    localStorage.setItem("mediscan_prescriptions", JSON.stringify(updated));
+    setPrescriptions(prev => {
+      const updated = [newRx, ...prev];
+      localStorage.setItem("mediscan_prescriptions", JSON.stringify(updated));
+      return updated;
+    });
   }
 
   function handleApiKeySubmit(key) {
@@ -127,12 +131,19 @@ export default function App() {
     if (stage === "scanning") return;
     if (!apiKey) { setShowApiKeyInput(true); return; }
 
+    const now = Date.now();
+    if (now - lastRequestTime.current < 3000) {
+      setCountdown(Math.ceil((3000 - (now - lastRequestTime.current)) / 1000));
+      return;
+    }
+
     if (preview) URL.revokeObjectURL(preview);
     setPreview(URL.createObjectURL(file));
     setStage("scanning");
     setProgress(0);
     setResult(null);
     setError(null);
+    lastRequestTime.current = now;
 
     try {
       const parsed = await interpretPrescriptionFromImage(file, language, setProgress, apiKey);
@@ -152,11 +163,10 @@ export default function App() {
         setCountdown(60);
         setError("API rate limit. Wait 60 seconds.");
       } else if (msg.includes("Invalid") || msg.includes("API key") || msg.includes("401") || msg.includes("403")) {
-        setApiKey("");
         setShowApiKeyInput(true);
         setError("Invalid API key. Please enter a new one.");
       } else {
-        setError("Could not read prescription. Try with a clearer image.");
+        setError(mapErrorMessage(err));
       }
       setStage("error");
     }
@@ -174,6 +184,11 @@ export default function App() {
 
   function goToScan() { setView("scan"); reset(); }
   function goToDashboard() { setView("dashboard"); reset(); }
+  function handleChangeApiKey() {
+    reset();
+    setShowApiKeyInput(true);
+    setApiKeyError("");
+  }
 
   if (showApiKeyInput) {
     return (
@@ -204,7 +219,14 @@ export default function App() {
 
       {view === "scan" && (
         <main style={s.main}>
-          <Header language={language} onLanguageChange={setLanguage} showNewScan={stage !== "idle"} onNewScan={reset} onTrainClick={() => {}} />
+          <Header
+            language={language}
+            onLanguageChange={setLanguage}
+            showNewScan={stage !== "idle"}
+            onNewScan={reset}
+            onTrainClick={() => {}}
+            onChangeApiKey={handleChangeApiKey}
+          />
           {stage === "idle" && <UploadZone onScan={handleScan} isScanning={false} />}
           {stage === "scanning" && <ProgressCard progress={progress} stage={progress < 50 ? "loading_image" : "analyzing_meaning"} preview={preview} />}
           {stage === "result" && <ResultSection result={result} />}

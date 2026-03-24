@@ -36,13 +36,12 @@ function enhanceImageForOCR(canvas, ctx, img) {
   // Apply contrast and brightness enhancement
   const contrast = 1.4;  // 40% more contrast
   const brightness = 20; // +20 brightness
-  const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
 
   for (let i = 0; i < data.length; i += 4) {
     // Enhance each channel
-    data[i] = clamp(factor * (data[i] - 128) + 128 + brightness);     // R
-    data[i + 1] = clamp(factor * (data[i + 1] - 128) + 128 + brightness); // G
-    data[i + 2] = clamp(factor * (data[i + 2] - 128) + 128 + brightness); // B
+    data[i] = clamp((data[i] - 128) * contrast + 128 + brightness); // R
+    data[i + 1] = clamp((data[i + 1] - 128) * contrast + 128 + brightness); // G
+    data[i + 2] = clamp((data[i + 2] - 128) * contrast + 128 + brightness); // B
   }
 
   ctx.putImageData(imageData, 0, 0);
@@ -94,6 +93,11 @@ export async function preprocessImage(file) {
       try {
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          URL.revokeObjectURL(url);
+          resolve(file);
+          return;
+        }
 
         // Enhance the image
         enhanceImageForOCR(canvas, ctx, img);
