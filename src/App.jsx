@@ -89,8 +89,9 @@ export default function App() {
   const [error, setError] = useState(null);
   const [preview, setPreview] = useState(null);
   const [prescriptions, setPrescriptions] = useState([]);
-  const [apiKey, setApiKey] = useState("");
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+  const envKey = import.meta.env.VITE_GEMINI_API_KEY || "";
+  const [apiKey, setApiKey] = useState(envKey);
+  const [showApiKeyInput, setShowApiKeyInput] = useState(!envKey);
   const [apiKeyError, setApiKeyError] = useState("");
   const [countdown, setCountdown] = useState(0);
   const lastRequestTime = useRef(0);
