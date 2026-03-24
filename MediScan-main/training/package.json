@@ -1,0 +1,14 @@
+{
+  "name": "mediscan-ocr-training",
+  "version": "1.0.0",
+  "scripts": {
+    "train": "node training/scripts/train.js",
+    "generate-data": "python training/scripts/generate_synthetic_data.py",
+    "train-browser": "node training/scripts/trainBrowser.js"
+  },
+  "devDependencies": {
+    "@tensorflow/tfjs": "^4.17.0",
+    "@tensorflow-models/handpose": "^0.1.0",
+    "@tensorflow-models/mobilenet": "^2.1.0"
+  }
+}
