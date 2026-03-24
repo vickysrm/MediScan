@@ -8,7 +8,7 @@ function getModel(apiKey) {
   if (modelCache.has(apiKey)) return modelCache.get(apiKey);
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: "gemini-2.0-flash",
     generationConfig: {
       responseMimeType: "application/json",
       temperature: 0.1,
@@ -62,17 +62,15 @@ This is a second, careful verification read. Compare each character against the 
 
   return `${basePrompt}${passNote}
 
-IMPORTANT: Extract frequency from words like "once", "twice", "daily", "BD", "TDS", "OD", "1-0-1", "1-0-0", "0-1-1", "0-0-1", "every 8 hours", "every 12 hours", "at night", "in the morning", etc.
-
 Return ONLY this JSON:
 {
   "medications": [
     {
       "drugClass": "pharmacological class",
       "drugName": "brand/generic name as written",
-      "dosage": "e.g. 500mg - MUST extract from prescription",
-      "frequency": "MUST extract from prescription - e.g. Once daily, Twice daily, TDS, BD, OD, 1-0-1, etc. - NEVER say 'Not specified' if any frequency info is visible",
-      "instructions": ["specific instructions from prescription"],
+      "dosage": "e.g. 500mg",
+      "frequency": "e.g. Twice daily",
+      "instructions": ["specific instructions"],
       "warnings": ["safety warnings"],
       "interactions": [{"substance": "what to avoid", "risk": "high|moderate|low", "detail": "explanation"}],
       "alternatives": ["other possible readings if uncertain"],
