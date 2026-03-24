@@ -126,22 +126,18 @@ export default function App() {
     if (stage === "scanning") return;
     if (!apiKey) { setShowApiKeyInput(true); return; }
 
-    const now = Date.now();
-    if (now - lastRequestTime.current < 3000) {
-      setCountdown(3);
-      return;
-    }
-
     if (preview) URL.revokeObjectURL(preview);
     setPreview(URL.createObjectURL(file));
     setStage("scanning");
     setProgress(0);
     setResult(null);
     setError(null);
-    lastRequestTime.current = Date.now();
 
     try {
       const parsed = await interpretPrescriptionFromImage(file, language, setProgress, apiKey);
+      if (!parsed) {
+        throw new Error("No response from API");
+      }
       if (parsed.medications) {
         parsed.medications = parsed.medications.map(m => ({ instructions: [], warnings: [], interactions: [], alternatives: [], confidence: "high", ...m }));
       }
@@ -149,15 +145,17 @@ export default function App() {
       setResult(parsed);
       setStage("result");
     } catch (err) {
+      console.error("Scan error:", err);
       const msg = err.message || "";
       if (msg.includes("429") || msg.includes("rate")) {
         setCountdown(60);
-        setError("Rate limit. Wait 1 minute.");
-      } else if (msg.includes("image")) {
+        setError("API rate limit. Wait 60 seconds.");
+      } else if (msg.includes("Invalid") || msg.includes("API key") || msg.includes("401") || msg.includes("403")) {
+        setApiKey("");
         setShowApiKeyInput(true);
-        setError("Invalid API key.");
+        setError("Invalid API key. Please enter a new one.");
       } else {
-        setError(mapErrorMessage(err));
+        setError("Could not read prescription. Try with a clearer image.");
       }
       setStage("error");
     }
