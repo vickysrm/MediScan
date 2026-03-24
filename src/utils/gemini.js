@@ -14,13 +14,11 @@ async function hashString(str) {
 function getModel(apiKey) {
   if (!apiKey) throw new Error("Missing Gemini API key");
   const genAI = new GoogleGenerativeAI(apiKey);
-  return genAI.getGenerativeModel({ model: "gemini-1.5-flash-002" });
+  return genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 }
 
 function buildPrompt(language) {
   return `You are an expert clinical pharmacist. Read this prescription image and extract medication details.
-
-Extract: drugClass, drugName, dosage, frequency, instructions, warnings.
 
 Return ONLY JSON:
 {"medications": [{"drugClass": "class", "drugName": "name", "dosage": "dose", "frequency": "freq", "instructions": [], "warnings": [], "interactions": [], "alternatives": [], "confidence": "high", "prescriber": "N/A", "refills": "N/A"}]}
@@ -28,40 +26,59 @@ Return ONLY JSON:
 Translate to ${language}.`;
 }
 
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export async function interpretPrescriptionFromImage(file, language, onProgress, apiKey) {
-  onProgress?.(10);
-
-  const enhancedFile = await preprocessImage(file);
-  onProgress?.(25);
-
-  const { base64, mimeType } = await fileToBase64(enhancedFile);
-  onProgress?.(40);
-
-  // Check cache
-  const cacheKey = await hashString(base64.substring(0, 500));
-  if (responseCache.has(cacheKey)) {
-    onProgress?.(100);
-    return responseCache.get(cacheKey);
-  }
-
-  onProgress?.(50);
-
-  const model = getModel(apiKey);
-  
   try {
+    onProgress?.(10);
+    console.log("Processing image...");
+
+    const enhancedFile = await preprocessImage(file);
+    onProgress?.(25);
+    console.log("Image preprocessed");
+
+    const { base64, mimeType } = await fileToBase64(enhancedFile);
+    onProgress?.(40);
+    console.log("Image converted to base64, mime:", mimeType);
+
+    // Check cache
+    const cacheKey = await hashString(base64.substring(0, 500));
+    if (responseCache.has(cacheKey)) {
+      console.log("Using cached result");
+      onProgress?.(100);
+      return responseCache.get(cacheKey);
+    }
+
+    onProgress?.(50);
+
+    // Wait a moment before API call
+    await delay(500);
+
+    const model = getModel(apiKey);
+    console.log("Calling Gemini API...");
+    
     const result = await model.generateContent([
       buildPrompt(language),
       { inlineData: { data: base64, mimeType } }
     ]);
     
+    console.log("Got response from Gemini");
     const text = result.response.text();
+    console.log("Response text length:", text.length);
+    
     const cleaned = text.replace(/```json|```/g, "").trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     
-    if (!jsonMatch) throw new Error("No JSON in response");
+    if (!jsonMatch) {
+      console.log("Raw response:", text);
+      throw new Error("Could not parse prescription. Please try a clearer image.");
+    }
     
     const parsed = JSON.parse(jsonMatch[0]);
     onProgress?.(100);
+    console.log("Parsed result:", parsed);
 
     if (parsed.medications) {
       responseCache.set(cacheKey, parsed);
@@ -73,9 +90,13 @@ export async function interpretPrescriptionFromImage(file, language, onProgress,
 
     return parsed;
   } catch (err) {
+    console.error("Error:", err.message);
     if (err.message?.includes("429") || err.message?.includes("rate")) {
-      throw new Error("Rate limit reached. Please wait 1 minute and try again.");
+      throw new Error("Rate limit. Wait 1 minute.");
     }
-    throw err;
+    if (err.message?.includes("API key") || err.message?.includes("401") || err.message?.includes("403")) {
+      throw new Error("Invalid API key.");
+    }
+    throw new Error("Could not read prescription. Try a clearer image.");
   }
 }
