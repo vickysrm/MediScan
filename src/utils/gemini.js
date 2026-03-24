@@ -29,43 +29,27 @@ function getModel(apiKey) {
   return model;
 }
 
-async function extractTextWithOCR(imageBase64, mimeType) {
-  const formData = new FormData();
-  const blob = await fetch(`data:${mimeType};base64,${imageBase64}`).then(r => r.blob());
-  formData.append('file', blob, 'prescription.jpg');
-  formData.append('language', 'auto');
-  formData.append('isOverlay', 'false');
+function buildPrompt(language, passNum) {
+  const basePrompt = `You are an expert clinical pharmacist and OCR specialist. Your job is to read prescription images with extreme accuracy.
 
-  const response = await fetch('https://api.ocr.space/parse', {
-    method: 'POST',
-    headers: {
-      'apikey': 'helloworld', // Free demo key - 100 requests/day
-    },
-    body: formData
-  });
+TASK: Read this prescription image and extract every piece of medication information.
 
-  const data = await response.json();
-  if (data.IsError) {
-    throw new Error(data.ErrorMessage[0]);
-  }
-  return data.ParsedResults[0]?.ParsedText || '';
-}
-
-function buildPromptWithText(text, language) {
-  const basePrompt = `You are an expert clinical pharmacist. Your job is to analyze this prescription text and extract medication information.
-
-PRESCRIPTION TEXT:
-${text}
-
-TASK: Extract medication details - name, dosage, frequency, instructions, warnings.
+ACCURACY RULES:
+- Read character by character, especially numbers
+- If handwriting is unclear, consider what makes pharmacological sense
+- Drug names often end in: -olol, -pril, -sartan, -statin, -azole, -mycin
 
 COMMON MEDICATIONS:
-Pain: Ibuprofen(200-800mg), Paracetamol(500-1000mg), Diclofenac(50-100mg), Tramadol(50-100mg)
-BP: Amlodipine(2.5-10mg), Losartan(25-100mg), Telmisartan(20-80mg), Ramipril(1.25-10mg), Metoprolol(25-200mg)
-Diabetes: Metformin(500-2000mg), Glimepiride(1-4mg), Sitagliptin(25-100mg)
+Pain: Ibuprofen(200-800mg), Paracetamol(500-1000mg), Diclofenac(50-100mg)
+BP: Amlodipine(2.5-10mg), Losartan(25-100mg), Metoprolol(25-200mg)
+Diabetes: Metformin(500-2000mg), Glimepiride(1-4mg)
 Cholesterol: Atorvastatin(10-80mg), Rosuvastatin(5-40mg)
 Gastric: Pantoprazole(20-40mg), Omeprazole(20-40mg)
-Antibiotics: Amoxicillin(250-1000mg), Azithromycin(250-500mg), Ciprofloxacin(250-750mg)
+Antibiotics: Amoxicillin(250-1000mg), Azithromycin(250-500mg)
+
+INDIAN BRANDS: Zevert, Ecosprin, Amlodac, Glycomet SR, Pantop, Storvas, Rosuvas, Telma`;
+
+  return `${basePrompt}
 
 Return ONLY this JSON:
 {
@@ -75,29 +59,30 @@ Return ONLY this JSON:
       "drugName": "name as written",
       "dosage": "e.g. 500mg",
       "frequency": "e.g. Twice daily",
-      "instructions": ["instructions"],
-      "warnings": ["warnings"],
+      "instructions": [],
+      "warnings": [],
       "interactions": [],
       "alternatives": [],
       "confidence": "high",
-      "prescriber": "doctor name if visible",
-      "refills": "refill info"
+      "prescriber": "Not specified",
+      "refills": "Not specified"
     }
   ]
-}`;
-
-  return language !== 'English' ? `${basePrompt}\n\nTranslate to ${language}.` : basePrompt;
 }
 
-async function callAPI(model, prompt, timeoutMs = 60000) {
+Translate to ${language}.`;
+}
+
+async function callAPI(model, prompt, imagePart, timeoutMs = 60000) {
   for (let attempt = 0; attempt < 3; attempt++) {
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error("Request timed out")), timeoutMs);
     });
 
     try {
+      const content = imagePart ? [prompt, imagePart] : [prompt];
       const result = await Promise.race([
-        model.generateContent(prompt),
+        model.generateContent(content),
         timeoutPromise,
       ]);
       const text = result.response.text();
@@ -124,7 +109,7 @@ export async function interpretPrescriptionFromImage(file, language, onProgress,
   const { base64, mimeType } = await fileToBase64(enhancedFile);
   onProgress?.(40);
 
-  // Check cache using image hash
+  // Check cache
   const cacheKey = await hashString(base64.substring(0, 1000));
   if (responseCache.has(cacheKey)) {
     console.log('Using cached result');
@@ -132,22 +117,12 @@ export async function interpretPrescriptionFromImage(file, language, onProgress,
     return responseCache.get(cacheKey);
   }
 
-  onProgress?.(50);
-
-  let extractedText;
-  try {
-    extractedText = await extractTextWithOCR(base64, mimeType);
-  } catch (err) {
-    console.warn('OCR failed, using Gemini directly:', err.message);
-    extractedText = '';
-  }
-
-  onProgress?.(70);
-
   const model = getModel(apiKey);
-  const prompt = buildPromptWithText(extractedText || '[Image]', language);
+  const imagePart = { inlineData: { data: base64, mimeType } };
+  const prompt = buildPrompt(language, 1);
   
-  const result = await callAPI(model, prompt);
+  onProgress?.(50);
+  const result = await callAPI(model, prompt, imagePart);
   onProgress?.(100);
 
   if (result && result.medications) {
