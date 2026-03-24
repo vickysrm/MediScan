@@ -85,27 +85,36 @@ Return ONLY this JSON:
 Translate to ${language}. Drug names: keep original + translated.`;
 }
 
-async function callAPI(model, prompt, imagePart, timeoutMs = 45000) {
+async function callAPI(model, prompt, imagePart, timeoutMs = 60000) {
   let timeoutId;
-  const timeoutPromise = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error("Request timed out")), timeoutMs);
-  });
 
-  try {
-    const result = await Promise.race([
-      model.generateContent([prompt, imagePart]),
-      timeoutPromise,
-    ]);
-    clearTimeout(timeoutId);
-    const text = result.response.text();
-    const cleaned = text.replace(/```json|```/g, "").trim();
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON object found in response");
-    return JSON.parse(jsonMatch[0]);
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err.message === "Request timed out") throw err;
-    throw new Error(`Failed to parse AI response: ${err.message}`);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error("Request timed out")), timeoutMs);
+    });
+
+    try {
+      const result = await Promise.race([
+        model.generateContent([prompt, imagePart]),
+        timeoutPromise,
+      ]);
+      clearTimeout(timeoutId);
+      const text = result.response.text();
+      const cleaned = text.replace(/```json|```/g, "").trim();
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("No JSON object found in response");
+      return JSON.parse(jsonMatch[0]);
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.message === "Request timed out") throw err;
+      if (err.message?.includes("429") || err.message?.includes("rate") || err.message?.includes("RESOURCE_EXHAUSTED")) {
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 3000 * (attempt + 1)));
+          continue;
+        }
+      }
+      throw new Error(`Failed to parse AI response: ${err.message}`);
+    }
   }
 }
 
@@ -196,26 +205,11 @@ export async function interpretPrescriptionFromImage(file, language, onProgress,
   const model = getModel(apiKey);
   const imagePart = { inlineData: { data: base64, mimeType } };
 
-  // Pass 1: Initial extraction
+  // Single pass extraction
   const prompt1 = buildPrompt(language, 1);
   onProgress?.(50);
-  const pass1 = await callAPI(model, prompt1, imagePart);
-  onProgress?.(70);
-
-  // Pass 2: Verification (graceful fallback if it fails)
-  const prompt2 = buildPrompt(language, 2);
-  onProgress?.(75);
-  let pass2;
-  try {
-    pass2 = await callAPI(model, prompt2, imagePart);
-  } catch (err) {
-    console.warn("Pass 2 verification failed, using pass 1 results:", err.message);
-    pass2 = null;
-  }
-  onProgress?.(90);
-
-  const merged = pass2 ? mergeResults(pass1, pass2) : pass1;
+  const result = await callAPI(model, prompt1, imagePart);
   onProgress?.(100);
 
-  return merged;
+  return result;
 }
