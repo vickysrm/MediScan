@@ -2,6 +2,15 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { fileToBase64, preprocessImage } from "./file.js";
 
 const modelCache = new Map();
+const responseCache = new Map();
+
+async function hashString(str) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 function getModel(apiKey) {
   if (!apiKey) throw new Error("Missing Gemini API key. Please enter your API key.");
@@ -202,6 +211,14 @@ export async function interpretPrescriptionFromImage(file, language, onProgress,
   const { base64, mimeType } = await fileToBase64(enhancedFile);
   onProgress?.(40);
 
+  // Check cache using image hash
+  const cacheKey = await hashString(base64.substring(0, 1000));
+  if (responseCache.has(cacheKey)) {
+    console.log('Using cached result');
+    onProgress?.(100);
+    return responseCache.get(cacheKey);
+  }
+
   const model = getModel(apiKey);
   const imagePart = { inlineData: { data: base64, mimeType } };
 
@@ -210,6 +227,16 @@ export async function interpretPrescriptionFromImage(file, language, onProgress,
   onProgress?.(50);
   const result = await callAPI(model, prompt1, imagePart);
   onProgress?.(100);
+
+  // Cache the result
+  if (result && result.medications) {
+    responseCache.set(cacheKey, result);
+    // Limit cache size
+    if (responseCache.size > 10) {
+      const firstKey = responseCache.keys().next().value;
+      responseCache.delete(firstKey);
+    }
+  }
 
   return result;
 }
