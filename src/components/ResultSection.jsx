@@ -49,7 +49,7 @@ export default function ResultSection({ result }) {
         </>
       )}
 
-      {(medications.length > 0 || result.drugName) && <PharmacyLocator />}
+      {(medications.length > 0 || result.drugName) && <PharmacyLocator medications={medications.length > 0 ? medications : [result]} />}
     </div>
   );
 }

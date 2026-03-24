@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MapPin, Navigation, Loader2, Search } from "lucide-react";
+import { MapPin, Navigation, Loader2, Search, Phone, CheckCircle } from "lucide-react";
 
 const s = {
   container: { background: "#fff", borderRadius: 20, border: "1px solid #f1f5f9", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", padding: 20 },
@@ -15,35 +15,40 @@ const s = {
   pharmacyInfo: { flex: 1, minWidth: 0 },
   pharmacyName: { fontSize: 13, fontWeight: 700, color: "#0f172a", margin: "0 0 4px" },
   pharmacyAddress: { fontSize: 11, color: "#64748b", margin: 0, lineHeight: 1.4 },
+  stockBadge: { display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#64748b", marginTop: 6 },
   directionsBtn: { display: "flex", alignItems: "center", gap: 4, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 10px", fontSize: 10, fontWeight: 600, color: "#0d9488", cursor: "pointer", flexShrink: 0 },
   loadingRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: 20, color: "#64748b", fontSize: 12 },
   errorText: { color: "#ef4444", fontSize: 12, textAlign: "center", padding: 12 },
   emptyText: { color: "#94a3b8", fontSize: 12, textAlign: "center", padding: 12 },
+  locationNote: { fontSize: 11, color: "#64748b", marginBottom: 12, fontStyle: "italic" },
 };
 
-export default function PharmacyLocator() {
+export default function PharmacyLocator({ medications = [] }) {
   const [pharmacies, setPharmacies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchedCity, setSearchedCity] = useState("");
 
   const fetchPharmacies = async (city) => {
     if (!city.trim()) return;
     setLoading(true);
     setError("");
+    setSearchedCity(city);
     try {
       const geoRes = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city)}&limit=1`
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city)}&addressdetails=1&limit=1`
       );
       const geoData = await geoRes.json();
       if (!geoData.length) {
-        setError("City not found. Try a different name.");
+        setError("City not found. Try a different name (include country if needed, e.g., 'Chennai, India')");
         setLoading(false);
         return;
       }
-      const { lat, lon } = geoData[0];
+      const { lat, lon, address } = geoData[0];
+      const cityName = address?.city || address?.town || address?.village || address?.municipality || city;
       const pharmRes = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=pharmacy&lat=${lat}&lon=${lon}&limit=5&radius=10000`
+        `https://nominatim.openstreetmap.org/search?format=json&q=pharmacy&lat=${lat}&lon=${lon}&limit=10&radius=15000`
       );
       const pharmData = await pharmRes.json();
       setPharmacies(pharmData);
@@ -61,6 +66,8 @@ export default function PharmacyLocator() {
     window.open(url, "_blank");
   };
 
+  const medNames = medications.map(m => m.drugName).filter(Boolean);
+
   return (
     <div style={s.container}>
       <div style={s.header}>
@@ -70,10 +77,16 @@ export default function PharmacyLocator() {
         <h3 style={s.title}>Find Pharmacies</h3>
       </div>
 
+      {medNames.length > 0 && (
+        <p style={{ fontSize: 11, color: "#64748b", marginBottom: 8 }}>
+          Searching for pharmacies with: <strong>{medNames.join(", ")}</strong>
+        </p>
+      )}
+
       <div style={s.searchRow}>
         <input
           type="text"
-          placeholder="Enter city name..."
+          placeholder="Enter city name (e.g., Chennai, India)"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSearch()}
@@ -90,31 +103,40 @@ export default function PharmacyLocator() {
       {loading && (
         <div style={s.loadingRow}>
           <Loader2 size={16} className="spin" />
-          Finding pharmacies...
+          Finding pharmacies in {searchedCity || "..."}...
         </div>
       )}
 
       {!loading && pharmacies.length > 0 && (
-        <div style={s.pharmacyList}>
-          {pharmacies.map((pharmacy, idx) => (
-            <div key={idx} style={s.pharmacyCard}>
-              <div style={s.pharmacyIcon}>
-                <MapPin size={16} color="#0891b2" />
+        <>
+          <p style={s.locationNote}>Found {pharmacies.length} pharmacies in {searchedCity}</p>
+          <div style={s.pharmacyList}>
+            {pharmacies.map((pharmacy, idx) => (
+              <div key={idx} style={s.pharmacyCard}>
+                <div style={s.pharmacyIcon}>
+                  <MapPin size={16} color="#0891b2" />
+                </div>
+                <div style={s.pharmacyInfo}>
+                  <p style={s.pharmacyName}>{pharmacy.display_name.split(",")[0]}</p>
+                  <p style={s.pharmacyAddress}>{pharmacy.display_name.split(",").slice(1, 4).join(",").trim()}</p>
+                  {medNames.length > 0 && (
+                    <div style={s.stockBadge}>
+                      <Phone size={10} />
+                      Call to check if medicines are in stock
+                    </div>
+                  )}
+                </div>
+                <button style={s.directionsBtn} onClick={() => openDirections(pharmacy)}>
+                  <Navigation size={10} /> Directions
+                </button>
               </div>
-              <div style={s.pharmacyInfo}>
-                <p style={s.pharmacyName}>{pharmacy.display_name.split(",")[0]}</p>
-                <p style={s.pharmacyAddress}>{pharmacy.display_name.split(",").slice(1).join(",").trim()}</p>
-              </div>
-              <button style={s.directionsBtn} onClick={() => openDirections(pharmacy)}>
-                <Navigation size={10} /> Directions
-              </button>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </>
       )}
 
       {!loading && !error && pharmacies.length === 0 && searchQuery && (
-        <p style={s.emptyText}>No pharmacies found in this city.</p>
+        <p style={s.emptyText}>No pharmacies found. Try a different city name.</p>
       )}
     </div>
   );
