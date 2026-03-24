@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { AlertTriangle, X, Home, PlusCircle } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { AlertTriangle, X, Home, PlusCircle, Clock } from "lucide-react";
 import Header from "./components/Header";
 import UploadZone from "./components/UploadZone";
 import ProgressCard from "./components/ProgressCard";
@@ -23,6 +23,8 @@ const s = {
   navBar: { position: "sticky", top: 0, background: "#fff", borderBottom: "1px solid #e2e8f0", padding: "12px 20px", display: "flex", justifyContent: "center", gap: 16, zIndex: 50 },
   navBtn: (active) => ({ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 10, border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", background: active ? "#0d9488" : "#f1f5f9", color: active ? "#fff" : "#64748b" }),
   setupCard: { background: "#fff", borderRadius: 20, border: "1px solid #f1f5f9", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", padding: 32, textAlign: "center", maxWidth: 440, margin: "40px auto" },
+  rateLimitCard: { background: "#fff", borderRadius: 20, border: "1px solid #f1f5f9", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", padding: 32, textAlign: "center", margin: "40px auto", maxWidth: 400 },
+  countdown: { fontSize: 48, fontWeight: 800, color: "#0d9488", margin: "16px 0" },
 };
 
 function mapErrorMessage(err) {
@@ -52,6 +54,25 @@ function SetupNotice() {
   );
 }
 
+function RateLimitScreen({ countdown, onRetry }) {
+  return (
+    <div style={s.rateLimitCard}>
+      <Clock size={48} color="#0d9488" style={{ marginBottom: 16 }} />
+      <h2 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", margin: "0 0 8px" }}>Please Wait</h2>
+      <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 16px" }}>
+        The API is temporarily busy. Try again in:
+      </p>
+      <p style={s.countdown}>{countdown}s</p>
+      <button
+        onClick={onRetry}
+        style={{ padding: "12px 24px", background: "#0d9488", color: "#fff", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer", marginTop: 16 }}
+      >
+        Try Now
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
   const [view, setView] = useState("dashboard");
   const [stage, setStage] = useState("idle");
@@ -62,6 +83,9 @@ export default function App() {
   const [preview, setPreview] = useState(null);
   const [showTrainer, setShowTrainer] = useState(false);
   const [prescriptions, setPrescriptions] = useState([]);
+  const [countdown, setCountdown] = useState(0);
+  const [rateLimited, setRateLimited] = useState(false);
+  const lastRequestTime = useRef(0);
 
   useEffect(() => {
     const saved = localStorage.getItem("mediscan_prescriptions");
@@ -69,6 +93,15 @@ export default function App() {
       setPrescriptions(JSON.parse(saved));
     }
   }, []);
+
+  useEffect(() => {
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    } else if (rateLimited) {
+      setRateLimited(false);
+    }
+  }, [countdown, rateLimited]);
 
   function savePrescription(parsed) {
     const newRx = {
@@ -83,12 +116,23 @@ export default function App() {
 
   async function handleScan(file) {
     if (stage === "scanning") return;
+    
+    const now = Date.now();
+    const timeSinceLastRequest = now - lastRequestTime.current;
+    if (timeSinceLastRequest < 5000 && lastRequestTime.current > 0) {
+      const waitTime = Math.ceil((5000 - timeSinceLastRequest) / 1000);
+      setCountdown(waitTime);
+      setRateLimited(true);
+      return;
+    }
+
     if (preview) URL.revokeObjectURL(preview);
     setPreview(URL.createObjectURL(file));
     setStage("scanning");
     setProgress(0);
     setResult(null);
     setError(null);
+    lastRequestTime.current = Date.now();
 
     try {
       const parsed = await interpretPrescriptionFromImage(file, language, setProgress, API_KEY);
@@ -106,8 +150,16 @@ export default function App() {
       setResult(parsed);
       setStage("result");
     } catch (err) {
-      setError(mapErrorMessage(err));
-      setStage("error");
+      const msg = err.message || "";
+      if (msg.includes("429") || msg.includes("rate") || msg.includes("RESOURCE_EXHAUSTED")) {
+        setCountdown(60);
+        setRateLimited(true);
+        setStage("idle");
+        setError("API rate limit reached. Please wait 60 seconds.");
+      } else {
+        setError(mapErrorMessage(err));
+        setStage("error");
+      }
     }
   }
 
@@ -118,6 +170,8 @@ export default function App() {
     setResult(null);
     setError(null);
     setProgress(0);
+    setRateLimited(false);
+    setCountdown(0);
   }
 
   function goToScan() {
@@ -209,10 +263,16 @@ export default function App() {
             onNewScan={reset}
             onTrainClick={() => setShowTrainer(true)}
           />
-          {stage === "idle" && <UploadZone onScan={handleScan} isScanning={false} />}
-          {stage === "scanning" && <ProgressCard progress={progress} stage={progress < 50 ? "loading_image" : "analyzing_meaning"} preview={preview} />}
-          {stage === "result" && <ResultSection result={result} />}
-          {stage === "error" && <ErrorView error={error} onRetry={reset} />}
+          {rateLimited ? (
+            <RateLimitScreen countdown={countdown} onRetry={reset} />
+          ) : (
+            <>
+              {stage === "idle" && <UploadZone onScan={handleScan} isScanning={false} />}
+              {stage === "scanning" && <ProgressCard progress={progress} stage={progress < 50 ? "loading_image" : "analyzing_meaning"} preview={preview} />}
+              {stage === "result" && <ResultSection result={result} />}
+              {stage === "error" && <ErrorView error={error} onRetry={reset} />}
+            </>
+          )}
         </main>
       )}
 
